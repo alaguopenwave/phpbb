@@ -13,11 +13,11 @@ die("Please read the first lines of this script for instructions on how to enabl
 // Do not change anything below this line.
 //
 
-define('IN_PHPBB', true);
+
 $phpbb_root_path = "../";
 include($phpbb_root_path . 'extension.inc');
 include($phpbb_root_path . 'common.'.$phpEx);
-include($phpbb_root_path . 'includes/functions_post.'.$phpEx);
+include($phpbb_root_path . 'includes/post.'.$phpEx);
 include($phpbb_root_path . 'includes/bbcode.'.$phpEx);
 
 srand ((double) microtime() * 1000000);
@@ -51,9 +51,6 @@ And a quote!
 [/quote]
 ';
 
-$users = intval($HTTP_GET_VARS['users']);
-$posts = intval($HTTP_GET_VARS['posts']);
-$size = intval($HTTP_GET_VARS['size']);
 
 // The script expects the ID's in the tables to sequential (1,2,3,4,5), 
 // so no holes please (1,4,5,8)...
@@ -91,9 +88,7 @@ if ($posts > 0)
 
 $endtime = microtime();
 
-$submit = (isset($HTTP_GET_VARS['submit'])) ? true : false;
-
-if (!$submit)
+if ($submit="" || !isset($submit))
 {
     ?>
 Hello, welcome to this little phpBB Benchmarking script :)<p>
@@ -224,10 +219,10 @@ function make_topic($user_id, $subject, $forum_id)
 	$topic_vote = 0;
 	$current_time = time();
 	
-	$sql = "INSERT INTO " . TOPICS_TABLE . " (topic_title, topic_poster, topic_time, forum_id, topic_status, topic_type, topic_vote) 
-		VALUES ('$subject', $user_id, $current_time, $forum_id, " . TOPIC_UNLOCKED . ", $topic_type, $topic_vote)";
+	$sql  = "INSERT INTO " . TOPICS_TABLE . " (topic_title, topic_poster, topic_time, forum_id, topic_status, topic_type, topic_vote)
+			VALUES ('$subject', $user_id, $current_time, $forum_id, " . TOPIC_UNLOCKED . ", $topic_type, $topic_vote)";
 
-	if( $result = $db->sql_query($sql) )
+	if( $result = $db->sql_query($sql, BEGIN_TRANSACTION) )
 	{
 		$new_topic_id = $db->sql_nextid();
 	}
@@ -243,14 +238,17 @@ function make_topic($user_id, $subject, $forum_id)
 
 
 
-function create_posting($userid, $topic_id, $forum, $mode = 'newtopic')
+function create_posting($userid, $topic_id, $forum, $mode='newtopic')
 {
 	$message = generatepost();
 
 	return make_post($topic_id, $forum, $userid, "", $message, $mode);
+
 }
 
-function make_post($new_topic_id, $forum_id, $user_id, $post_username, $text, $mode = 'newtopic')
+
+
+function make_post($new_topic_id, $forum_id, $user_id, $post_username, $text, $mode='newtopic')
 {
 	global $db;
 	$current_time = time();
@@ -263,54 +261,65 @@ function make_post($new_topic_id, $forum_id, $user_id, $post_username, $text, $m
 	
 	$post_subject = 'random subject';
 	
-	$post_message = prepare_message($text, $html_on, $bbcode_on, $smilies_on, $bbcode_uid);
+	$post_message = prepare_message($text, $html_on, $bbcode_on, $smilies_on, $bbcode_uid);	
 	
-	$sql = "INSERT INTO " . POSTS_TABLE . " (topic_id, forum_id, poster_id, post_username, post_time, poster_ip, enable_bbcode, enable_html, enable_smilies, enable_sig) 
-		VALUES ($new_topic_id, $forum_id, $user_id, '$post_username', $current_time, '$user_ip', $bbcode_on, $html_on, $smilies_on, $attach_sig)";
+	$sql = "INSERT INTO " . POSTS_TABLE . " (topic_id, forum_id, poster_id, attach_id, icon_id, post_username, post_time, poster_ip, post_approved, bbcode_uid, enable_bbcode, enable_html, enable_smilies, enable_sig, post_subject, post_text)
+		VALUES ($new_topic_id, $forum_id, $user_id, 0, 0, '$post_username', $current_time, '$user_ip', 1, '$bbcode_uid', $bbcode_on, $html_on, $smilies_on, $attach_sig, '$post_subject', '$post_message')";
 	$result = $db->sql_query($sql);
 	
-	if($result)
+	if ($result)
 	{
 		$new_post_id = $db->sql_nextid();
 	
-		$sql = "INSERT INTO " . POSTS_TEXT_TABLE . " (post_id, post_subject, bbcode_uid, post_text) 
-			VALUES ($new_post_id, '$post_subject', '$bbcode_uid', '$post_message')";
-	
+		$sql = "UPDATE " . TOPICS_TABLE . "
+			SET topic_last_post_id = $new_post_id";
+		if($mode == "reply")
+		{
+			$sql .= ", topic_replies = topic_replies + 1 ";
+		}
+		$sql .= " WHERE topic_id = $new_topic_id";
+
 		if($db->sql_query($sql))
 		{
-			$post_data = array();
-			$post_data['first_post'] = false;
-			$post_data['last_post'] = true;
-
-			$sql = "SELECT SUM(post_id) as total FROM " . POSTS_TABLE . " WHERE topic_id = " . $new_topic_id;
-			$result = $db->sql_query($sql);
-			$row = $db->sql_fetchrow($result);
-			$total = intval($row['total']);
-
-			if ($total == 1)
+			$sql = "UPDATE " . FORUMS_TABLE . "
+				SET forum_last_post_id = $new_post_id, forum_posts = forum_posts + 1";
+			if($mode == "newtopic")
 			{
-				$post_data['first_post'] = true;
+				$sql .= ", forum_topics = forum_topics + 1";
 			}
-			
-			$sql = "SELECT forum_last_post_id
-				FROM " . FORUMS_TABLE . "
-				WHERE forum_id = $forum_id";
-			$result = $db->sql_query($sql);
-			$row = $db->sql_fetchrow($result);
-			$post_data['last_topic'] = ( $row['forum_last_post_id'] == $new_post_id ) ? true : false;
-
-			update_post_stats($mode, $post_data, $forum_id, $new_topic_id, $new_post_id, $user_id);
+			$sql .= " WHERE forum_id = $forum_id";
+	
+			if($db->sql_query($sql))
+			{
+				$sql = "UPDATE " . USERS_TABLE . "
+					SET user_posts = user_posts + 1
+					WHERE user_id = " . $user_id;
+	
+				if($db->sql_query($sql, END_TRANSACTION))
+				{
+					// SUCCESS.
+					return true;
+				}
+				else
+				{
+					message_die(GENERAL_ERROR, "Error updating users table", "", __LINE__, __FILE__, $sql);
+				}
+			}
+			else
+			{
+				message_die(GENERAL_ERROR, "Error updating forums table", "", __LINE__, __FILE__, $sql);
+			}
 		}
 		else
 		{
 			// Rollback
-			if(SQL_LAYER == "mysql")
+			if($db->sql_layer == "mysql")
 			{
 				$sql = "DELETE FROM " . POSTS_TABLE . "
 					WHERE post_id = $new_post_id";
 				$db->sql_query($sql);
 			}
-			message_die(GENERAL_ERROR, "Error inserting data into posts text table", "", __LINE__, __FILE__, $sql);
+			message_die(GENERAL_ERROR, "Error updating topics table", "", __LINE__, __FILE__, $sql);
 		}
 	}
 	else
@@ -320,7 +329,7 @@ function make_post($new_topic_id, $forum_id, $user_id, $post_username, $text, $m
 }
 
 
-function generatepost($size = 850)
+function generatepost($size=850)
 {
    global $bigass_text;
    // Returns a string with a length between $size and $size*0.2
@@ -397,7 +406,23 @@ function make_user($username)
 		message_die(GENERAL_ERROR, "Couldn't obtained next user_id information.", "", __LINE__, __FILE__, $sql);
 	}
 
-	$sql = "INSERT INTO " . USERS_TABLE . "	(user_id, username, user_regdate, user_password, user_email, user_icq, user_website, user_occ, user_from, user_interests, user_sig, user_sig_bbcode_uid, user_avatar, user_viewemail, user_aim, user_yim, user_msnm, user_attachsig, user_allowsmile, user_allowhtml, user_allowbbcode, user_allow_viewonline, user_notify, user_notify_pm, user_timezone, user_dateformat, user_lang, user_style, user_level, user_allow_pm, user_active, user_actkey)
+	$sql = "SELECT MAX(group_id) AS total
+		FROM " . GROUPS_TABLE;
+	if($result = $db->sql_query($sql))
+	{
+		$row = $db->sql_fetchrow($result);
+		$new_group_id = $row['total'] + 1;
+
+		unset($result);
+		unset($row);
+	}
+	else
+	{
+		message_die(GENERAL_ERROR, "Couldn't obtained next user_id information.", "", __LINE__, __FILE__, $sql);
+	}
+
+
+	$sql = "INSERT INTO " . USERS_TABLE . "	(user_id, username, user_regdate, user_password, user_email, user_icq, user_website, user_occ, user_from, user_interests, user_sig, user_sig_bbcode_uid, user_avatar, user_viewemail, user_aim, user_yim, user_msnm, user_attachsig, user_allowsmilies, user_allowhtml, user_allowbbcode, user_allow_viewonline, user_notify, user_notify_pm, user_timezone, user_dateformat, user_lang, user_style, user_level, user_allow_pm, user_active, user_actkey)
 		VALUES ($new_user_id, '$username', " . time() . ", '$password', '$email', '$icq', '$website', '$occupation', '$location', '$interests', '$signature', '$signature_bbcode_uid', '$avatar_filename', $viewemail, '$aim', '$yim', '$msn', $attachsig, $allowsmilies, $allowhtml, $allowbbcode, $allowviewonline, $notifyreply, $notifypm, $user_timezone, '$user_dateformat', '$user_lang', $user_style, 0, 1, ";
 
 	
@@ -405,14 +430,12 @@ function make_user($username)
 	
 	if($result = $db->sql_query($sql, BEGIN_TRANSACTION))
 	{
-		$sql = "INSERT INTO " . GROUPS_TABLE . " (group_name, group_description, group_single_user, group_moderator)
-			VALUES ('', 'Personal User', 1, 0)";
+		$sql = "INSERT INTO " . GROUPS_TABLE . " (group_id, group_name, group_description, group_single_user, group_moderator)
+			VALUES ($new_group_id, '', 'Personal User', 1, 0)";
 		if($result = $db->sql_query($sql))
 		{
-			$group_id = $db->sql_nextid();
-			
 			$sql = "INSERT INTO " . USER_GROUP_TABLE . " (user_id, group_id, user_pending)
-				VALUES ($new_user_id, $group_id, 0)";
+				VALUES ($new_user_id, $new_group_id, 0)";
 			if($result = $db->sql_query($sql, END_TRANSACTION))
 			{
 				
@@ -436,8 +459,4 @@ function make_user($username)
 
 }
 
-
-
- 
-  
 ?>
