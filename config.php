@@ -1,5 +1,5 @@
 <?php
-$dbms = 'mysqli';
+$dbms = 'mysql';
 $dbhost = 'localhost';
 $dbport = '';
 $dbname = 'scholastic_forum';
