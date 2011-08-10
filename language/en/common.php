@@ -196,8 +196,8 @@ $lang = array_merge($lang, array(
 	'FORUM_LINK'			=> 'Forum link',
 	'FORUM_LOCATION'		=> 'Forum location',
 	'FORUM_LOCKED'			=> 'Forum locked',
-	'FORUM_RULES'			=> 'Forum rules',
-	'FORUM_RULES_LINK'		=> 'Please click here to view the forum rules',
+	'FORUM_RULES'			=> 'Announcements',
+	'FORUM_RULES_LINK'		=> 'Please click here to view the Announcements',
 	'FROM'					=> 'from',
 	'FSOCK_DISABLED'		=> 'The operation could not be completed because the <var>fsockopen</var> function has been disabled or the server being queried could not be found.',
 
